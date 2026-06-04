@@ -15,7 +15,7 @@
 /* =============================================================
    0. 접근 코드  ← 배포 전 반드시 변경!
 ============================================================= */
-const ACCESS_CODE = 'live111';
+const ACCESS_CODE = 'sprint2025';
 
 
 /* =============================================================
@@ -32,6 +32,7 @@ const A = {
   selColor:     '#6366f1',
   openIssId:    null,
   editingIssId: null,
+  editingSpId:  null,   // 스프린트 수정 모드
   tlStartDate:  null,
   tlDays:       30,
   tlStatusFilter: 'all',    // 타임라인 상태 필터: 'all' | 'in-progress' | 'done'
@@ -337,6 +338,15 @@ function renderSprint() {
               ${pc ? `<span class="spill" style="background:var(--prog-bg);color:var(--prog)">${pc} 진행</span>` : ''}
               ${dc ? `<span class="spill" style="background:var(--done-bg);color:var(--done)">${dc} 해결</span>` : ''}
               ${uc ? `<span class="spill" style="background:var(--bg2);color:var(--text3)">${uc} 미해결</span>`  : ''}
+            </div>
+            <!-- 수정/삭제 버튼: 클릭 시 상위 toggleSp 방지 -->
+            <div style="display:flex;gap:4px;margin-left:6px" onclick="event.stopPropagation()">
+              <button class="sp-action-btn" onclick="openSpEditModal('${sp.id}')" title="스프린트 수정">
+                ✏️
+              </button>
+              <button class="sp-action-btn sp-action-del" onclick="deleteSp('${sp.id}')" title="스프린트 삭제">
+                🗑
+              </button>
             </div>
           </div>
         </div>
@@ -1112,17 +1122,79 @@ function addProj() {
 
 
 /* =============================================================
-   19. 스프린트 추가
+   19. 스프린트 등록 / 수정 / 삭제
 ============================================================= */
-function openSpModal() { populateSels(); om('sp-modal'); }
 
-function addSp() {
+/** 신규 등록 모달 열기 */
+function openSpModal() {
+  A.editingSpId = null;
+  populateSels();
+  document.getElementById('sp-name').value = '';
+  document.getElementById('sp-date').value = '';
+  document.getElementById('sp-modal-title').textContent = '스프린트 등록';
+  document.getElementById('sp-submit-btn').textContent  = '등록';
+  om('sp-modal');
+}
+
+/** 수정 모달 열기 — 기존 값을 폼에 채움 */
+function openSpEditModal(spId) {
+  const sp = gs(spId); if (!sp) return;
+  A.editingSpId = spId;
+  populateSels();
+
+  document.getElementById('sp-name').value  = sp.name;
+  document.getElementById('sp-date').value  = sp.date;
+  /* 프로젝트 셀렉트 값 맞추기 */
+  const projSel = document.getElementById('sp-proj');
+  if (projSel) projSel.value = sp.projId || '';
+
+  document.getElementById('sp-modal-title').textContent = '스프린트 수정';
+  document.getElementById('sp-submit-btn').textContent  = '저장';
+  om('sp-modal');
+}
+
+/** 등록/수정 공통 제출 */
+function submitSp() {
   const n   = document.getElementById('sp-name').value.trim();
   const d   = document.getElementById('sp-date').value;
   const pid = document.getElementById('sp-proj').value;
   if (!n || !d) { alert('이름과 서밋일을 입력하세요'); return; }
-  Store.data.sprints.push({ id: uid(), name: n, date: d, projId: pid });
-  Store.save(); cm('sp-modal');
+
+  if (A.editingSpId) {
+    /* 수정 */
+    const sp = gs(A.editingSpId); if (!sp) return;
+    sp.name   = n;
+    sp.date   = d;
+    sp.projId = pid;
+  } else {
+    /* 신규 */
+    Store.data.sprints.push({ id: uid(), name: n, date: d, projId: pid });
+  }
+
+  Store.save();
+  cm('sp-modal');
+  A.editingSpId = null;
   document.getElementById('sp-name').value = '';
   renderAll();
 }
+
+/** 스프린트 삭제 */
+function deleteSp(spId) {
+  const sp = gs(spId); if (!sp) return;
+  const issCount = Store.data.issues.filter(i => i.sprintId === spId).length;
+  const msg = issCount
+    ? `"${sp.name}"을 삭제할까요?\n이 스프린트에 연결된 이슈 ${issCount}개는 '미배정' 상태로 변경됩니다.`
+    : `"${sp.name}"을 삭제할까요?`;
+  if (!confirm(msg)) return;
+
+  /* 연결된 이슈의 sprintId를 빈 문자열로 초기화 (이슈 자체는 유지) */
+  Store.data.issues.forEach(i => {
+    if (i.sprintId === spId) i.sprintId = '';
+  });
+  Store.data.sprints = Store.data.sprints.filter(s => s.id !== spId);
+  Store.save();
+  renderAll();
+}
+
+/* 하위 호환 — 기존 addSp 호출 방지 */
+function addSp() { submitSp(); }
